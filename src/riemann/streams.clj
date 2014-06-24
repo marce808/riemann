@@ -1482,22 +1482,46 @@
   ; Assume states *were* ok the first time we see them.
   (changed :state {:init \"ok\"} prn)
 
+  ; Receive the previous event, in addition to the current event
+  (changed :state
+           (fn [prev-evt evt]
+             (prn \"changed from\" (:state prev-evt) \"to\" (:state evt))))
+
   Note that f can be an arbitrary function:
 
   (changed (fn [e] (> (:metric e) 2)) ...)"
   [pred & children]
   (let [options  (first children)
         previous (atom (list (when (map? options)
-                               (:init options))))
+                               {pred (:init options)})))
         children (if (map? options)
                    (rest children)
-                   children)]
+                   children)
+        child-arities (map #(-> %
+                                class
+                                .getDeclaredMethods
+                                first
+                                .getParameterTypes
+                                alength)
+                           children)]
+
     (fn stream [event]
-      (let [cur  (pred event)
-            kept (swap! previous (comp (partial take 2)
-                                       #(conj % cur)))]
-        (when-not (every? (partial = cur) kept)
-          (call-rescue event children))))))
+      (let [kept (swap! previous (comp (partial take 2)
+                                       #(conj % event)))]
+        (when-not (every? (partial = (pred event)) (map pred kept))
+          (dorun
+            (map
+              (fn [child arity]
+                (try
+                  (if (= 1 arity)
+                      (child event)
+                      (child (second kept) event))
+                  (catch Throwable e
+                    (warn e (str child " threw"))
+                    (if-let [ex-stream *exception-stream*]
+                      (ex-stream (exception->event e))))))
+              children
+              child-arities)))))))
 
 (defmacro changed-state
   "Passes on changes in state for each distinct host and service."

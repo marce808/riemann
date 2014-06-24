@@ -3,6 +3,7 @@
   streams, client, email, logging, and graphite; the common functions used in
   config. Provides a default core and functions ((tcp|udp)-server, streams,
   index, reinject) which operate on that core."
+  (:import (java.io File))
   (:require [riemann.core :as core]
             [riemann.common :as common :refer [event]]
             [riemann.service :as service]
@@ -316,9 +317,19 @@
     (catch clojure.lang.LispReader$ReaderException e
       (throw (logging/nice-syntax-error e file)))))
 
+
+(defn- config-file?
+  "Is the given File a configuration file?"
+  [^File file]
+  (let [filename (.getName file)]
+    (and (.isFile file)
+         (or (.matches filename ".*\\.clj$")
+             (.matches filename ".*\\.config$")))))
+
 (defn include
   "Include another config file or directory. If the path points to a
-   directory, all files within it will be loaded recursively.
+   directory, all files with names ending in `.config` or `.clj` within
+   it will be loaded recursively.
 
   ; Relative to the current config file, or cwd
   (include \"foo.clj\")
@@ -332,6 +343,6 @@
               *ns* (find-ns 'riemann.config)]
       (if (.isDirectory file)
         (doseq [f (file-seq file)]
-          (when (.isFile f)
+          (when (config-file? f)
             (load-file (.toString f))))
         (load-file path)))))
